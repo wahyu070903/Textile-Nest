@@ -5,6 +5,8 @@ class Camera:
     def __init__(self, port=0, width=None, height=None):
         self.port = port
         self.cap = cv2.VideoCapture(port, cv2.CAP_DSHOW)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open camera {port}")
@@ -68,10 +70,7 @@ class Camera:
 
         marker_centers = {}
 
-        for corner, marker_id in zip(
-            corners,
-            ids.flatten()
-        ):
+        for corner, marker_id in zip(corners, ids.flatten()):
 
             marker_id = int(marker_id)
 
@@ -102,9 +101,9 @@ class Camera:
 
         dst = np.float32([
             [0, 0],
-            [600, 0],
-            [600, 400],
-            [0, 400]
+            [1920, 0],
+            [1920, 1080],
+            [0, 1080]
         ])
 
         H, status = cv2.findHomography(
@@ -118,7 +117,8 @@ class Camera:
         warped = cv2.warpPerspective(
             frame,
             H,
-            (600, 400)
+            (1920, 1080),
+            flags=cv2.INTER_CUBIC
         )
 
         return warped

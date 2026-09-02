@@ -63,15 +63,15 @@ class LeftPanel(QWidget):
         
         form.addRow("Metode:", self.method_combo)
 
-        self.threshold_slider = QSlider(Qt.Horizontal)
-        self.threshold_slider.setRange(0, 255)
-        self.threshold_slider.setValue(120)
-        form.addRow("Threshold:", self.threshold_slider)
+        self.upper_threshold_slider = QSlider(Qt.Horizontal)
+        self.upper_threshold_slider.setRange(0, 255)
+        self.upper_threshold_slider.setValue(150)
+        form.addRow("Upper Threshold:", self.upper_threshold_slider)
 
-        self.min_area_spin = QSpinBox()
-        self.min_area_spin.setRange(0, 100000)
-        self.min_area_spin.setValue(500)
-        form.addRow("Min Area (px):", self.min_area_spin)
+        self.lower_threshold_slider = QSlider(Qt.Horizontal)
+        self.lower_threshold_slider.setRange(0, 255)
+        self.lower_threshold_slider.setValue(50)
+        form.addRow("Lower Threshold:", self.lower_threshold_slider)
 
         self.auto_detect_check = QCheckBox("Auto-detect real-time")
         self.auto_detect_check.setChecked(True)
@@ -82,6 +82,7 @@ class LeftPanel(QWidget):
         self.detect_btn = QPushButton("Deteksi Sekarang")
         self.detect_btn.setObjectName("PrimaryButton")
         body_layout.addWidget(self.detect_btn)
+        # self.detect_btn.click(self.detect_edges)
 
         shapes_group = QGroupBox("Show Layer")
         shapes_layout = QVBoxLayout(shapes_group)
@@ -112,6 +113,9 @@ class LeftPanel(QWidget):
     def on_invert_toggled(self, checked):
         if checked:
             self.layer_check_normal.setChecked(False)
+    
+    def detect_edges(self):
+        pass    
 
 class RightPanel(QWidget):
     def __init__(self):
@@ -305,7 +309,10 @@ class CameraView(QWidget):
 
         edge_layer = self.imageUpdate.copy()
         if realtime_detect and edge_layer_visibility:
-            edges = self.methods[method_name].process(edge_layer)
+            self.methods[method_name].lower_threshold = self.left_panel.lower_threshold_slider.value()
+            self.methods[method_name].upper_threshold = self.left_panel.upper_threshold_slider.value()
+            edges, area = self.methods[method_name].process(edge_layer)
+            print(area)
             if edges is not None:
                     edge_layer[edges > 0] = (0, 255, 0)
                     rgb = cv2.cvtColor(edge_layer, cv2.COLOR_BGR2RGB)
