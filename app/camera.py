@@ -127,4 +127,3 @@ class Camera:
         pts = corner.reshape(4, 2)
         center = pts.mean(axis=0)
         return center
-

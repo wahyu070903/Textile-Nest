@@ -230,111 +230,240 @@ class CameraView(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.updateFrame)
         self.pixmap_item = self.scene.addPixmap(QPixmap())
-        
-    def captureImage(self):
-        if self.imageUpdate is None:
-            print("No frame available")
-            return
-
-        # Simpan frame terakhir
-        self.imageCaptured = self.imageUpdate.copy()
-        self.isImageCaptured = True
-
-        # Hentikan stream
-        self.stopCamera()
-
-        # Tampilkan hasil capture
-        rgb = cv2.cvtColor(self.imageCaptured, cv2.COLOR_BGR2RGB)
-
-        h, w, ch = rgb.shape
-
-        image = QImage(
-            rgb.data,
-            w,
-            h,
-            ch * w,
-            QImage.Format_RGB888
-        )
-
-        pixmap = QPixmap.fromImage(image)
-
-        self.scene.clear()
-        self.pixmap_item = self.scene.addPixmap(pixmap)
-        self.scene.setSceneRect(self.pixmap_item.boundingRect())
-        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
-
-        print("Image captured")        
-
-    def openImage(self):    #fungsi percobaan
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Image",
-            "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
-        )
-
-        if not filename:
-            return
-        
-        self.imagePath = filename
-        self.imageData = cv2.imread(filename)
-
-        if self.imageData is None:
-            print("Failed to load image")
-            return
-
-        self.scene = QGraphicsScene()
-        self.view.setScene(self.scene)
-        pixmap = QPixmap(self.imagePath)
-        self.scene.addPixmap(pixmap)
-        
-    def openCamera(self):
-        self.camera = Camera(port=1, width=1280, height=720)
-        self.timer.start(30)
-    
-    def updateFrame(self):
-        ret, self.imageUpdate = self.camera.read()
-        if not ret:
-            return
 
         self.methods = {
             "Canny Contour": CannyMethod(),
             # "Edge Detection": EdgeMethod(),
             # "AI Segmentation": AISegmentMethod()
         }
+        
+    def showFrame(self, frame_bgr):
+        """Helper: render BGR frame ke QGraphicsScene."""
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        image = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(image)
+        self.pixmap_item.setPixmap(pixmap)
+        self.scene.setSceneRect(self.pixmap_item.boundingRect())
+        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+
+    # def captureImage(self):
+    #     if self.imageUpdate is None:
+    #         print("No frame available")
+    #         return
+
+    #     self.imageCaptured = self.imageUpdate.copy()
+    #     self.isImageCaptured = True
+
+    #     self.stopCamera()
+
+    #     rgb = cv2.cvtColor(self.imageCaptured, cv2.COLOR_BGR2RGB)
+
+    #     h, w, ch = rgb.shape
+
+    #     image = QImage(
+    #         rgb.data,
+    #         w,
+    #         h,
+    #         ch * w,
+    #         QImage.Format_RGB888
+    #     )
+
+    #     pixmap = QPixmap.fromImage(image)
+
+    #     self.scene.clear()
+    #     self.pixmap_item = self.scene.addPixmap(pixmap)
+    #     self.scene.setSceneRect(self.pixmap_item.boundingRect())
+    #     self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+
+    #     print("Image captured") 
+
+    def captureImage(self):
+        if self.imageUpdate is None:
+            print("No frame available")
+            return
+
+        self.imageCaptured = self.imageUpdate.copy()
+        self.isImageCaptured = True
+
+        self.stopCamera()
+
+        self.scene.clear()
+        self.pixmap_item = self.scene.addPixmap(QPixmap())
+        self.showFrame(self.imageCaptured)
+
+        print("Image captured")
+
+    def detectFabric(self):
+        """Dipanggil saat tombol 'Deteksi Sekarang' ditekan."""
+        if not self.isImageCaptured or self.imageCaptured is None:
+            self.window().statusBar().showMessage(
+                "Capture frame dulu sebelum deteksi", 3000
+            )
+            return
+
+        method_name = self.left_panel.method_combo.currentText()
+        method = self.methods.get(method_name)
+
+        if method is None:
+            self.window().statusBar().showMessage(
+                f"Metode '{method_name}' belum tersedia", 3000
+            )
+            return
+
+        method.lower_threshold = self.left_panel.lower_threshold_slider.value()
+        method.upper_threshold = self.left_panel.upper_threshold_slider.value()
+
+        _, area, contour = method.process(self.imageCaptured)
+
+        result_frame = self.imageCaptured.copy()
+
+        if contour is None or area <= 0:
+            self.window().statusBar().showMessage(
+                "Tidak ada kontur terdeteksi", 3000
+            )
+            self.showFrame(result_frame)
+            return
+
+        cv2.drawContours(result_frame, [contour], -1, (0, 255, 0), 2)
+        self.draw_area_label(result_frame, contour, area)
+        self.showFrame(result_frame)
+
+        self.window().statusBar().showMessage(
+            f"Luas area terdeteksi: {area:,.0f} px\u00b2", 5000
+        )
+
+    def draw_area_label(self, frame, contour, area, unit="px\u00b2"):
+        x, y, w, h = cv2.boundingRect(contour)
+
+        text = f"Luas: {area:,.0f} {unit}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.2
+        thickness = 4
+        padding = 6
+
+        (text_w, text_h), _ = cv2.getTextSize(text, font, font_scale, thickness)
+
+        label_x = x
+        label_y = y - text_h - padding * 2 - 8
+
+        # kalau kontur mepet tepi atas, taruh label di bawah kontur saja
+        below = label_y < 0
+        if below:
+            label_y = y + h + 8
+
+        box_tl = (label_x, label_y)
+        box_br = (label_x + text_w + padding * 2, label_y + text_h + padding * 2)
+
+        cv2.rectangle(frame, box_tl, box_br, (0, 255, 0), -1)
+        cv2.rectangle(frame, box_tl, box_br, (0, 120, 0), 1)
+
+        text_org = (label_x + padding, label_y + text_h + padding - 2)
+        cv2.putText(frame, text, text_org, font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+
+        # garis penghubung label -> kontur (biar jelas "milik" kontur yang mana)
+        anchor_contour = (x + w // 2, y if not below else y + h)
+        anchor_label = (
+            label_x + (box_br[0] - box_tl[0]) // 2,
+            box_br[1] if not below else box_tl[1]
+        )
+        cv2.line(frame, anchor_label, anchor_contour, (0, 255, 0), 1, cv2.LINE_AA)
+       
+
+    # def openImage(self):    #fungsi percobaan
+    #     filename, _ = QFileDialog.getOpenFileName(
+    #         self,
+    #         "Open Image",
+    #         "",
+    #         "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
+    #     )
+
+    #     if not filename:
+    #         return
+        
+    #     self.imagePath = filename
+    #     self.imageData = cv2.imread(filename)
+
+    #     if self.imageData is None:
+    #         print("Failed to load image")
+    #         return
+
+    #     self.scene = QGraphicsScene()
+    #     self.view.setScene(self.scene)
+    #     pixmap = QPixmap(self.imagePath)
+    #     self.scene.addPixmap(pixmap)
+        
+    def openCamera(self):
+        self.camera = Camera(port=1, width=1280, height=720)
+        self.timer.start(30)
+    
+    # def updateFrame(self):
+    #     ret, self.imageUpdate = self.camera.read()
+    #     if not ret:
+    #         return
+
+    #     method_name = self.left_panel.method_combo.currentText()
+    #     realtime_detect = self.left_panel.auto_detect_check.isChecked()
+    #     edge_layer_visibility = self.left_panel.layer_check_edges.isChecked()
+
+    #     edge_layer = self.imageUpdate.copy()
+    #     if realtime_detect and edge_layer_visibility:
+    #         self.methods[method_name].lower_threshold = self.left_panel.lower_threshold_slider.value()
+    #         self.methods[method_name].upper_threshold = self.left_panel.upper_threshold_slider.value()
+    #         edges, area = self.methods[method_name].process(edge_layer)
+    #         print(area)
+    #         if edges is not None:
+    #                 edge_layer[edges > 0] = (0, 255, 0)
+    #                 rgb = cv2.cvtColor(edge_layer, cv2.COLOR_BGR2RGB)
+    
+    #     else:
+    #         rgb = cv2.cvtColor(self.imageUpdate, cv2.COLOR_BGR2RGB)
+
+    #     h, w, ch = rgb.shape
+    #     image = QImage(
+    #         rgb.data,
+    #         w,
+    #         h,
+    #         ch * w,
+    #         QImage.Format_RGB888
+    #     )
+    #     pixmap = QPixmap.fromImage(image)
+    #     self.pixmap_item.setPixmap(pixmap)
+    #     self.scene.setSceneRect(self.pixmap_item.boundingRect())
+    #     self.view.fitInView(
+    #         self.scene.sceneRect(),
+    #         Qt.KeepAspectRatioByExpanding
+    #     )
+
+    def updateFrame(self):
+        ret, self.imageUpdate = self.camera.read()
+        if not ret:
+            return
 
         method_name = self.left_panel.method_combo.currentText()
         realtime_detect = self.left_panel.auto_detect_check.isChecked()
         edge_layer_visibility = self.left_panel.layer_check_edges.isChecked()
 
         edge_layer = self.imageUpdate.copy()
+        rgb = cv2.cvtColor(self.imageUpdate, cv2.COLOR_BGR2RGB)
+
         if realtime_detect and edge_layer_visibility:
-            self.methods[method_name].lower_threshold = self.left_panel.lower_threshold_slider.value()
-            self.methods[method_name].upper_threshold = self.left_panel.upper_threshold_slider.value()
-            edges, area = self.methods[method_name].process(edge_layer)
-            print(area)
+            method = self.methods[method_name]
+            method.lower_threshold = self.left_panel.lower_threshold_slider.value()
+            method.upper_threshold = self.left_panel.upper_threshold_slider.value()
+
+            edges, area, contour = method.process(edge_layer)
+
             if edges is not None:
-                    edge_layer[edges > 0] = (0, 255, 0)
-                    rgb = cv2.cvtColor(edge_layer, cv2.COLOR_BGR2RGB)
-    
-        else:
-            rgb = cv2.cvtColor(self.imageUpdate, cv2.COLOR_BGR2RGB)
+                edge_layer[edges > 0] = (0, 255, 0)
+                rgb = cv2.cvtColor(edge_layer, cv2.COLOR_BGR2RGB)
 
         h, w, ch = rgb.shape
-        image = QImage(
-            rgb.data,
-            w,
-            h,
-            ch * w,
-            QImage.Format_RGB888
-        )
+        image = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(image)
         self.pixmap_item.setPixmap(pixmap)
         self.scene.setSceneRect(self.pixmap_item.boundingRect())
-        self.view.fitInView(
-            self.scene.sceneRect(),
-            Qt.KeepAspectRatioByExpanding
-        )
+        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatioByExpanding)
     
     def stopCamera(self):
         self.timer.stop()
@@ -425,6 +554,9 @@ class MainWindow(QMainWindow):
         self.camera_view = CameraView()
         self.right_panel = RightPanel()
         self.camera_view.left_panel = self.left_panel
+
+        # sambungkan tombol "Deteksi Sekarang" ke proses deteksi di CameraView
+        self.left_panel.detect_btn.clicked.connect(self.camera_view.detectFabric)
 
         self.splitter.addWidget(self.left_panel)
         self.splitter.addWidget(self.camera_view)
